@@ -1,0 +1,68 @@
+// $Header: d:/sh/RCS/tt.spp 1.2 93/07/11 09:48:54 Steve Exp $
+#include <sql.hpp>
+#include <string.h>
+class Assoc
+  {
+  public:
+   short assoc_id;
+   char d_last_trans[12];
+   char name[41];
+   char primary_relation;
+   short  d_last_trans_ni;
+   short  primary_relation_ni;
+  };
+
+
+static Assoc ass;
+
+Assoc *arr;
+char ddd[10]="%BEH%";
+
+
+void main(  )
+  {
+   static long numhits=0;
+   static    DATABASE db( "shop", 'S', &sqlca );
+   static    SQLCA *sq=&sqlca;
+   char eee[20];
+   strcpy(eee,"%ART%");
+
+   QUERY count( select count(*) into QV( long :numhits )
+		from assoc where translate( name ) like QV( char :ddd[10] )
+		or translate( name ) like QV( char :eee[10] ) );
+
+
+   long rc=count.exec();
+
+   CURSOR get( select
+     CV( ASSOC_ID , short :ass.assoc_id ),
+     CV( D_LAST_TRANS , char :ass.d_last_trans[12] :ass.d_last_trans_ni ),
+     CV( NAME , char :ass.name[41] ),
+     CV( PRIMARY_RELATION , char :ass.primary_relation :ass.primary_relation_ni  )
+     from assoc where translate( name ) like QV(char :ddd[10]) );
+
+
+// the following statement avoids calling Assoc constructor numhits times
+   arr=(Assoc *) new char[numhits*sizeof( Assoc )];
+SQLVAR *t;
+
+t=get.outvars();
+
+t=get.invars();
+for( int j=0; j<4; j++ )
+  t++;
+
+   get.open();
+   rc=sq->sqlcode;
+   for( int i=0; i<numhits; i++  )
+     {
+      get.fetch();
+   rc=sq->sqlcode;
+      rc=SQLCODE;
+      arr[i]=ass;
+     }
+   get.close();
+   rc=sq->sqlcode;
+   rc=SQLCODE;
+  }
+

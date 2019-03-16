@@ -1,0 +1,273 @@
+(C) Copyright Stephen B. Behman, 1993 -- All rights reserved.
+
+$Header: d:/sh/RCS/sqlclass.doc 1.1 93/07/14 10:14:19 Steve Exp $
+
+The stuff accompanying this doc and the doc itself are the copyrighted
+property of Steve Behman.  You may copy, modify and distribute it without
+payment of any royalty but YOU MUST INCLUDE THE COPYRIGHT NOTICE appearing on
+the top line of this doc in all code and documentation referring to code
+prepared from this and in each .exe or .dll for which the accompanying code
+is used.
+
+It is not that I want credit, I am a "control freak" and just don't want to
+lose all control. Also if you find it particularly useful I wouldn't object
+to you making a cash contribution so that I can afford the time to improve it.
+
+This C++ Class library encapsulates "Embedded SQL."  It was written in
+self defense to avoid the drudgery of EMBEDDED SQL and most of all the
+horrors of coding for SQLPREP.
+
+There are 8 files accompanying this doc:
+1) SQL.CPP, the implementation of the classes which do the work;
+2) SQL.HPP, a header file for .SPP programs which include the required
+   definitions but leave out most of the implementation;
+3) PREPRE.CMD, a REXX command to pre process .Spp files (build .sqc files for
+   SQLPREP);
+4) POSTPRE.CMD, which transforms the .I output of the C Set++ compiler
+   into a proper .cpp file to compile with ICC (more about this later);
+5) TT.SPP, A small sample program which a) works (on my Database) and b) gives
+   you an idea how to use the classes;
+6) DESCRIBE.CMD which describes the columns in a given table in a specified
+   database and provides input to;
+7) MKSQL.CMD, which provides some model code for use in building your
+   applications using your database and your tables.
+
+While this is a "work in progress" it has been tested on a fair number of
+database programs.
+
+The basic methodology employs two classes: 1) QUERY and 2) CURSOR.  One other
+class ( DATABASE ) is used to encapsulate initialization, the COMMIT and the
+ROLLBACK commands for the database.
+
+In your application execution an instance of DATABASE must be instantiated
+BEFORE ANY OTHER DATABASE CALL is made, probably this is best done before
+main() in the module containing main.
+
+The most interesting classes are: CURSOR and QUERY which encapsulate most
+of the SQL work you will do.
+
+A typical program fragment would look like:
+
+DATABASE db;			      // starts the dbm
+
+
+struct Answer			      // to receive "fetched" data
+  {				      // may have members not in a query
+   long id;			      // or a cursor -- it is shown only to
+   char name[31];		      // illustrate the flexibility and
+   char addr1[41];		      // because I almost always have a
+   char addr2[41];		      // struct for each table.
+   short addr1_nv;		      // nothing significant about any of
+   short addr2_nv;		      // the variable names
+  };
+
+short a;
+extern Answer *answer;
+long ct;
+
+//  "instantiate" a query
+
+QUERY get_count( select count( * ) from names into QV( long :ct )
+		 where DEPT_NO = QV( short :a )
+	       );
+short depnum;
+
+void main()
+  {
+static CURSOR get_recs( select QV( NAME, char :answer.name[30] ),
+			QV( ADDR, char :answer.addr[40] :answer.addr_nv ),
+			QV( ID, long :id) from names
+			where Dept_no = QV( short :num ) );
+
+get_count.exec();
+Answer *names=new Answer[ct];
+get_recs.open();
+for( int i=0; i<ct || i<30; i++ )
+  {
+   rc=get_recs.fetch();
+   names[i]=answer;
+  }
+get_recs.close();
+.
+.
+delete [] names;		      // help avoid memory leaks
+
+There is no "Fetch" declaration required -- it is deduced from the CURSOR def.
+
+As can be seen the "host variables" can be defined virtually any way you
+wish; in this case as members of a structure!
+
+The only requirements are: 1) that host vars have FIXED (const) ADDRESSES from
+the time that the CURSOR or QUERY constructor is called until it is destroyed;
+and 2) vars are such that the "&" operator is meaningful for them; 3) When
+you instantiate a CURSOR or QUERY the word (CURSOR or QUERY) and the "("
+which starts the initializer MUST BE ON THE SAME LINE and on that line only
+there may be no vestige of another statement; 4) the line on which the
+statement ends must have the statement terminator ';' preceeded by the closing
+')'.
+
+Examples:
+these two statements are ok:
+
+static CURSOR xmp ( ... 	     );
+__________________________
+QUERY abc( ...
+	   ... );
+
+the statment below is doubly bad: something not belonging to the statement
+preceeds it on the line the statment starts and the statment terminator is not
+on the same line as the closing ")".
+
+; static QUERY def(  )
+;
+
+To understand these requirements you must know that BEFORE compile time
+the TEXT in the CURSOR or QUERY is manipulated and placed in a call to the
+REAL constructor having been prefixed with the "&" operator
+and whatever the variable address values are at construction time they
+will be when the member functions are executed!  For now, the variables
+specified are prefixed with "&" before compile time, those addresses are
+stored at CONSTRUCTION time and will be used UNCHANGED until DESTRUCTION time.
+This requirement excludes non-const indexes or non-const pointers (i.e. var[i]
+or varptr->var where i or varptr will change from the time CURSOR() or QUERY()
+are called until the last exec, open, or fetch call using that CURSOR or QUERY)
+but includes varptr->var where varptr is const over the life of the CURSOR or
+QUERY.	The rub is that if you change an index or a pointer the CHANGE will not
+be seen.  The little parser in prepre.cmd does little syntax checking and
+cannot handle parentheses within a QV or CV -- don't use them unless you revise
+prepre (If you do that send me a copy, please.)
+
+NOTE: I may do something to eliminate these restrictions -- but not for a while.
+
+The syntax is a simple extension (and contraction) of embedded SQL.
+
+Variables which appear in the EXEC SQL FETCH :v1, v2, ... into etc.
+are each indicated in a "Cursor Variable"
+	CV( COLNAME, type :hostvar:nullindic )
+
+All other host vars are described in a "Query Variable"
+	QV( type :var :nullindic )
+
+EXAMPLE:
+Name is declared "char name[30];" and USER_NAME is the database column that
+"name" is to receive.  USER_NAME was declared "not null" (in the Database), say
+also that name_ptr is declared "char **name_ptr=name;" (note: name is a char*)
+Then the two declarations below HAVE EXACTLY THE SAME EFFECT no matter what
+happens to name_ptr during the life of the CURSOR in which it is used!!!
+
+   CV( USER_NAME, char :name[30] )
+
+   CV( USER_NAME, char *name )
+
+Any change to name_ptr after the instatiation of the CURSOR goes "unseen."
+
+In both the QV and CV "quasi macros" the null indicator is required if and
+only if it would have been required in the "standard" equivalent statement.
+QV's and CV's are NOT DATATYPES nor are they C++ macros!  They exist solely for
+my convenience and are processed by my code only.
+
+Please note that the SQL part of the statements DO NOT END IN ";" -- only
+the normal C++ ";" statement terminator is required (or can be present!)
+
+NOTE: Files coded using these classes must have the .SPP extension; .SQC, .C
+.I and, finally .CPP and .OBJ files will be built from them -- what a mess.
+
+The syntax is fairly "natural" and is, unfortunately somewhat more complicated
+than it need be.  The reason for the extra complexity is the authors desire
+to avoid writing a C++ parser!
+
+If the compiler folks in Toronto would get together with the DB2 folks (also
+in Maple Leaf City -- actually, probably in the same building) they could
+refine this in some real and substantive way.  Enough of my wishes!!!
+
+In order to use this library in addition to the SQL related classes there
+are two REXX commands which must be used.  One of them PREPRE.cmd processes
+an .SPP file to make a .SQC file.  This file is PREPROCESSED using SQLPREP.
+The resultant .C file is "pre"-processed using the ICC -P command and then
+more post-processing (of the resultant .i) file is done using the second
+rexx command POSTPRE.cmd.  More about this below.
+
+In addition to prepre.cmd and postpre.cmd there are two other rexx commands
+which are "Helpers."  The first "Describe.cmd" describes the columns in a
+table (using sysibm.systables.)  The second "MKSQL.cmd" builds the QV's for
+every column in the table and a structure to receive them.  Each QV for a
+var which may be null has a null indicator in it and qualifies the host var
+name with a (mandatory for mksql) structure member reference.  The name
+of a struture instance is a required command line arg to mksql.
+
+The structure name can be deleted or modified as you wish and
+Correlation names, where needed, can be freely prepended to the column names
+(which have syntactic and lexical value only to DBM via SQLPREP.)
+
+MKSQL is only a handy adjunct and its use optional.  MKSQL uses DESCRIBE so
+to use MKSQL DESCRIBE must also be in the path.
+
+
+Using PREPRE.cmd and POSTPRE.cmd
+
+The makefile for all of this processing for ES 1.0 or OS/2 EE 1.3 is:
+
+DATABASE=Your_database_name
+
+.spp.obj
+	prepre $*.spp $*.sqc
+	sqlprep $*.sqc $(DATABASE) /b /p /l=1
+	icc -p	-tp $*.c
+	if exist $*.cpp del $*.cpp
+	postpre  $*.i  $*.cpp
+	icc /c /gt /sm	$*.cpp
+
+sql.obj:sql.cpp
+	icc -gt -sm /c $*.cpp
+
+All the .objs in the project are linked using:
+
+proj.exe: a.obj ... sql.hpp sql.obj  # sql.obj contains the implementation of
+   link386  @<< 		     # sql.hpp -- the class definitions
+    /CO /NOL /PM:PM +		     # /CO is  for debugging
+    $(**: =+^
+    )
+    ,,NUL,
+    sql_dyn.lib 		     # plus any other libraries you may need.
+    ;
+<<
+
+where DATABASE is the name of the database containing the referenced tables.
+
+#include statements where the file spec is enclosed in "<" and ">" are not
+included until after postpre is run.  This is to keep the other files as small
+as possible.  If you want to exclude an include file in the same subdir as the
+project until the final ICC execution then enclose it in <..> and either have
+your INCLUDE environment variable be something like .;c:\ibmcpp\include;... or
+use the fully qualified name within the <> pair.  This will save you time in
+running postpre.
+
+I have not yet gotten my hands on DB2/2 but I don't think there will be
+much work required to fix my stuff for it.  It will certainly relax the
+need for the compiler /gt option and /sm is probably not needed now but I
+don't have time to experiment.  If there is any interest I will update it for
+DB2/2 when I get the thing which should be "Real soon now."  A fair amount of
+the fiddling about in the implementation (sql.cpp) is due to the fact that
+addresses stored in an sqlda must be 16:16 for ES 1.0 and EE 1.3 -- the DB2/2
+implementation should be somewhat cleaner!
+
+For distribution of code developed using the above the bind (.bnd) files
+associated with  each .SPP module must be distributed so that the application
+can be bound to the user's system.
+
+FINAL NOTE:  Little of this code is elegant -- "If I had more time this code
+would be neater, shorter and more elegant."  Most of the time spent on this
+was spent conceptualizing a "decent and useful" way to go at the thing.
+This was especially taxing because of the "brain dead" nature of SQLPREP and my
+steadfast unwillingness to write a C++ parser.
+
+I would appreciate your reporting any usage, bugs ( and their fixes ) and any
+suggestions you might have to me via COMPUSERVE PRIVATE MAIL!!! It is nice to
+know whether this scratches an itch that the SQL development community has.
+If there is no feedback I will assume I missed the mark and that this is
+either incomrehensible or useless or both.
+
+Please refer to the version and date info in the Header at the top of each file
+in which you find a bug.
+
+My COMPUSERVE address is:  Steve Behman [76360,3153].
